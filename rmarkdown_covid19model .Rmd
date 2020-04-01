@@ -1,0 +1,91 @@
+---
+title: "Imperial Covid19 Code"
+author: "Hamilton Institute, Maynooth"
+date: "01/04/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Imperial Covid19 Modelling Code
+
+This is our attempt to annotate and understand the Covid-19 modelling code made public at <https://github.com/ImperialCollegeLondon/covid19model>. 
+
+The model is:
+deaths[country, time] ~ NegBin (mu[country, time], phi), where mu is an integral which takes account the lag of the disease. and phi is ~ Normal(0,5);
+?It's an S(?E)IR model but with approximations for the derivatives. Note that there's no spatial element. No underlying clustering model based on geographical location. Seems like there should be?!?!
+
+## To run the code
+
+Download/clone the master from  <https://github.com/ImperialCollegeLondon/covid19model>. Open rstudio project covid19model.Rproj file in rstudio and run/source base.r file
+
+## A close look at some of the functionality
+They use stan to run their MCMC methods. However, the base.stan file is not very well commented. Let's try to add some helpful comments!
+
+## base.stan
+
+```{r echo=FALSE, results='hide',message=FALSE}
+data {
+  int <lower=1> M; // number of countries
+  int <lower=1> N0; // number of days for which to impute infections
+  int<lower=1> N[M]; // days of observed data for country m. each entry must be <= N2
+  int<lower=1> N2; // days of observed data + # of days to forecast
+  real<lower=0> x[N2]; // index of days (starting at 1)
+  int cases[N2,M]; // reported cases
+  int deaths[N2, M]; // reported deaths -- the rows with i > N contain -1 and should be ignored
+  matrix[N2, M] f; // h * s
+  matrix[N2, M] covariate1;
+  matrix[N2, M] covariate2;
+  matrix[N2, M] covariate3;
+  matrix[N2, M] covariate4;
+  matrix[N2, M] covariate5;
+  matrix[N2, M] covariate6;
+  int EpidemicStart[M];
+  real SI[N2]; // fixed pre-calculated SI using emprical data from Neil
+}
+```
+## base.r
+
+```{r echo=FALSE, results='hide',message=FALSE}
+library(rstan)
+library(data.table)
+library(lubridate)
+library(gdata)
+library(EnvStats)
+
+countries <- c(
+  "Denmark",
+  "Italy",
+  "Germany",
+  "Spain",
+  "United_Kingdom",
+  "France",
+  "Norway",
+  "Belgium",
+  "Austria", 
+  "Sweden",
+  "Switzerland"
+)
+
+args = commandArgs(trailingOnly=TRUE)
+if(length(args) == 0) {
+  args = 'base'
+} 
+StanModel = args[1]
+
+print(sprintf("Running %s",StanModel))
+```
+
+
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
