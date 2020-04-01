@@ -27,7 +27,7 @@ library(lubridate)
 library(gdata)
 library(EnvStats)
 
-## We should add Ireland here!
+### We should add *Ireland* here once we have included enough Irish data 
 countries <- c(
   "Denmark",
   "Italy",
@@ -51,15 +51,24 @@ StanModel = args[1]
 print(sprintf("Running %s",StanModel))
 
 ## Reading all data
+### This contains reporting_date, country ID, number of deaths, number of cases and population size in 2018
+### Ireland is included here.
 d=readRDS('data/COVID-19-up-to-date.rds')
 
 ## get CFR
+### This is the probability of dying given infection for different age categories. Presumably calculated from deaths and cases that are reported. 
+### We would need to add a row for *Ireland*.
 cfr.by.country = read.csv("data/weighted_fatality.csv")
+### Notation
 cfr.by.country$country = as.character(cfr.by.country[,2])
+### Notation
 cfr.by.country$country[cfr.by.country$country == "United Kingdom"] = "United_Kingdom"
 
+### What is this and how did they get it? X =1:100 and some tiny numbers called "fit" 
 serial.interval = read.csv("data/serial_interval.csv")
+### Need to include *Ireland* here..date schools/unis closed and other dates of measures implemented.
 covariates = read.csv('data/interventions.csv', stringsAsFactors = FALSE)
+### 8 interventions from schools closing to self isolation for 11 chosen countries
 covariates <- covariates[1:11, c(1,2,3,4,5,6, 7, 8)]
 
 ## making all covariates that happen after lockdown to have same date as lockdown
@@ -70,9 +79,11 @@ covariates$sport[covariates$sport > covariates$lockdown] <- covariates$lockdown[
 covariates$social_distancing_encouraged[covariates$social_distancing_encouraged > covariates$lockdown] <- covariates$lockdown[covariates$social_distancing_encouraged > covariates$lockdown]
 covariates$self_isolating_if_ill[covariates$self_isolating_if_ill > covariates$lockdown] <- covariates$lockdown[covariates$self_isolating_if_ill > covariates$lockdown]
 
+## number of parameters
 p <- ncol(covariates) - 1
 forecast = 0
 
+## N2 is the number of days to compute the forecast for 
 DEBUG = FALSE
 if(DEBUG == FALSE) {
   N2 = 75 # Increase this for a further forecast
@@ -135,11 +146,13 @@ for(Country in countries) {
     for(i in 1:length(h))
       h[i] = (CFR*pgammaAlt(i,mean = mean,cv=cv) - CFR*pgammaAlt(i-1,mean = mean,cv=cv)) / (1-CFR*pgammaAlt(i-1,mean = mean,cv=cv))
   } else { # NEW
+    ### ??? check paper do they justify these distribution parameters?
     mean1 = 5.1; cv1 = 0.86; # infection to onset
     mean2 = 18.8; cv2 = 0.45 # onset to death
     ## assume that CFR is probability of dying given infection
     x1 = rgammaAlt(5e6,mean1,cv1) # infection-to-onset ----> do all people who are infected get to onset?
     x2 = rgammaAlt(5e6,mean2,cv2) # onset-to-death
+    ### Compute the empirical cumulative distribution function                                           
     f = ecdf(x1+x2)
     convolution = function(u) (CFR * f(u))
     
