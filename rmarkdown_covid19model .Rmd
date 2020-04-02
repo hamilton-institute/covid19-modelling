@@ -7,26 +7,27 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-```
-
-## Imperial Covid19 Modelling Code
-
-This is our attempt to annotate and understand the Covid-19 modelling code made public at <https://github.com/ImperialCollegeLondon/covid19model>. 
-
-## To run the code
-
-Download/clone the master from  <https://github.com/ImperialCollegeLondon/covid19model>. Open rstudio project covid19model.Rproj file in rstudio and run/source base.r file
-
-## This is the code used in base.r
-
-```{r pressure, echo=FALSE}
-
 library(rstan)
 library(data.table)
 library(lubridate)
 library(gdata)
 library(EnvStats)
+```
 
+
+This is our attempt to annotate and understand the Covid-19 modelling code made public at <https://github.com/ImperialCollegeLondon/covid19model>. 
+
+### To run the code
+
+Download/clone the master from  <https://github.com/ImperialCollegeLondon/covid19model>. Open rstudio project covid19model.Rproj file in rstudio and run/source base.r file
+
+### This is the code used in base.r
+
+### Reading in the data
+
+Countries are defined and relevant data is read in.
+
+```{r data, eval = FALSE}
 ### We should add *Ireland* here once we have included enough Irish data 
 countries <- c(
   "Denmark",
@@ -42,6 +43,7 @@ countries <- c(
   "Switzerland"
 )
 
+### Set up here to use "base" stan model
 args = commandArgs(trailingOnly=TRUE)
 if(length(args) == 0) {
   args = 'base'
@@ -50,13 +52,14 @@ StanModel = args[1]
 
 print(sprintf("Running %s",StanModel))
 
-## Reading all data
+### Reading all data
 ### This contains reporting_date, country ID, number of deaths, number of cases and population size in 2018
 ### Ireland is included here.
 d=readRDS('data/COVID-19-up-to-date.rds')
 
-## get CFR
-### This is the probability of dying given infection for different age categories. Presumably calculated from deaths and cases that are reported. 
+### Get CFR
+### This is the probability of dying given infection for different age categories. 
+### Presumably calculated from deaths and cases that are reported. 
 ### We would need to add a row for *Ireland*.
 cfr.by.country = read.csv("data/weighted_fatality.csv")
 ### Notation
@@ -64,21 +67,45 @@ cfr.by.country$country = as.character(cfr.by.country[,2])
 ### Notation
 cfr.by.country$country[cfr.by.country$country == "United Kingdom"] = "United_Kingdom"
 
-### What is this and how did they get it? X =1:100 and some tiny numbers called "fit" 
-serial.interval = read.csv("data/serial_interval.csv")
 ### Need to include *Ireland* here..date schools/unis closed and other dates of measures implemented.
 covariates = read.csv('data/interventions.csv', stringsAsFactors = FALSE)
 ### 8 interventions from schools closing to self isolation for 11 chosen countries
 covariates <- covariates[1:11, c(1,2,3,4,5,6, 7, 8)]
 
 ## making all covariates that happen after lockdown to have same date as lockdown
-covariates$schools_universities[covariates$schools_universities > covariates$lockdown] <- covariates$lockdown[covariates$schools_universities > covariates$lockdown]
-covariates$travel_restrictions[covariates$travel_restrictions > covariates$lockdown] <- covariates$lockdown[covariates$travel_restrictions > covariates$lockdown] 
-covariates$public_events[covariates$public_events > covariates$lockdown] <- covariates$lockdown[covariates$public_events > covariates$lockdown]
-covariates$sport[covariates$sport > covariates$lockdown] <- covariates$lockdown[covariates$sport > covariates$lockdown]
-covariates$social_distancing_encouraged[covariates$social_distancing_encouraged > covariates$lockdown] <- covariates$lockdown[covariates$social_distancing_encouraged > covariates$lockdown]
-covariates$self_isolating_if_ill[covariates$self_isolating_if_ill > covariates$lockdown] <- covariates$lockdown[covariates$self_isolating_if_ill > covariates$lockdown]
+covariates$schools_universities[covariates$schools_universities > covariates$lockdown] 
+<- covariates$lockdown[covariates$schools_universities > covariates$lockdown]
 
+covariates$travel_restrictions[covariates$travel_restrictions > covariates$lockdown] 
+<- covariates$lockdown[covariates$travel_restrictions > covariates$lockdown] 
+
+covariates$public_events[covariates$public_events > covariates$lockdown] 
+<- covariates$lockdown[covariates$public_events > covariates$lockdown]
+
+covariates$sport[covariates$sport > covariates$lockdown] 
+<- covariates$lockdown[covariates$sport > covariates$lockdown]
+
+covariates$social_distancing_encouraged[covariates$social_distancing_encouraged > covariates$lockdown] 
+<- covariates$lockdown[covariates$social_distancing_encouraged > covariates$lockdown]
+
+covariates$self_isolating_if_ill[covariates$self_isolating_if_ill > covariates$lockdown] 
+<- covariates$lockdown[covariates$self_isolating_if_ill > covariates$lockdown]
+```
+
+__A note on SI:__
+SI is serial interval, defined in the paper as "the time between when a person gets infected and when they subsequently infect other people". The paper says this is g ~ Gamma(6.5,0.62). You get the data below using dgamma(1:100,6.5,0.62). 
+
+```{r SI}
+### So serial.interal$fit is the probability density and $X is time in days (1 to 100)
+serial.interval = read.csv("data/serial_interval.csv") 
+
+### Plot Fig 6 in paper supplemental
+plot(serial.interval$X[1:20], serial.interval$fit[1:20], type = "l")
+```
+
+### Creating data for stan model
+
+```{r standata1, eval = FALSE}
 ## number of parameters
 p <- ncol(covariates) - 1
 forecast = 0
@@ -96,18 +123,37 @@ if(DEBUG == FALSE) {
 
 dates = list()
 reported_cases = list()
-stan_data = list(M=length(countries),N=NULL,p=p,x1=poly(1:N2,2)[,1],x2=poly(1:N2,2)[,2],
-                 y=NULL,covariate1=NULL,covariate2=NULL,covariate3=NULL,covariate4=NULL,covariate5=NULL,covariate6=NULL,covariate7=NULL,deaths=NULL,f=NULL,
-                 N0=6,cases=NULL,LENGTHSCALE=7,SI=serial.interval$fit[1:N2],
-                 EpidemicStart = NULL) # N0 = 6 to make it consistent with Rayleigh
 deaths_by_country = list()
 
+### create stan data object to be added to later
+stan_data = list(M=length(countries),
+                 N=NULL,
+                 p=p,
+                 x1=poly(1:N2,2)[,1],
+                 x2=poly(1:N2,2)[,2],
+                 y=NULL,
+                 covariate1=NULL,
+                 covariate2=NULL,
+                 covariate3=NULL,
+                 covariate4=NULL,
+                 covariate5=NULL,
+                 covariate6=NULL,
+                 covariate7=NULL,
+                 deaths=NULL,
+                 f=NULL,
+                 N0=6,
+                 cases=NULL,
+                 LENGTHSCALE=7,
+                 SI=serial.interval$fit[1:N2],
+                 EpidemicStart = NULL) # N0 = 6 to make it consistent with Rayleigh
 
 for(Country in countries) {
+  ### Get CFR
   CFR=cfr.by.country$weighted_fatality[cfr.by.country$country == Country]
   
   covariates1 <- covariates[covariates$Country == Country, 2:8]
   
+  ### Get first non-zero cases
   d1=d[d$Countries.and.territories==Country,]
   d1$date = as.Date(d1$DateRep,format='%d/%m/%Y')
   d1$t = decimal_date(d1$date) 
@@ -127,7 +173,22 @@ for(Country in countries) {
   }
   
   dates[[Country]] = d1$date
-  # hazard estimation
+```
+
+__A note on probability of death depending on no. days since infection:__
+
+The goal below is the get `f` which in the paper is denoted $\pi_{s,m}$. This is the weight used in the calculation of the expected number of deaths. $\pi_{s,m}$ is derived from $\pi_m$ (labeled as `convolution` in the code) where
+
+$\pi_m \sim CFR_m*(Gamma(5.1,0.86) + Gamma(18.8,0.45))$
+
+Then $\pi_m$ is discretized to give $\pi_{s,m}$ which is used in the calculation for the expected number of deaths in the stan model as follows: 
+
+$d_{t,m} = \sum_{\tau = 0}^{t-1}c_{\tau,m}\times\pi_{t-\tau,m}$
+
+The number of deaths at time t  is the sum of the past infections ($c_{\tau,m}$) weighted by their probability of death, where the probability of death depends on the number of days since infection.
+
+```{r standata2, eval = FALSE}
+  ### hazard estimation
   N = length(d1$Cases)
   print(sprintf("%s has %d days of data",Country,N))
   forecast = N2 - N
@@ -145,17 +206,24 @@ for(Country in countries) {
     
     for(i in 1:length(h))
       h[i] = (CFR*pgammaAlt(i,mean = mean,cv=cv) - CFR*pgammaAlt(i-1,mean = mean,cv=cv)) / (1-CFR*pgammaAlt(i-1,mean = mean,cv=cv))
-  } else { # NEW
-    ### ??? check paper do they justify these distribution parameters?
+  } else { # NEW 
+    ### justified in the paper, NC 010420
     mean1 = 5.1; cv1 = 0.86; # infection to onset
     mean2 = 18.8; cv2 = 0.45 # onset to death
     ## assume that CFR is probability of dying given infection
-    x1 = rgammaAlt(5e6,mean1,cv1) # infection-to-onset ----> do all people who are infected get to onset?
+    x1 = rgammaAlt(5e6,mean1,cv1) # infection-to-onset ----> do all people who are infected get to onset? Incubation period, NC 010420
     x2 = rgammaAlt(5e6,mean2,cv2) # onset-to-death
-    ### Compute the empirical cumulative distribution function                                           
-    f = ecdf(x1+x2)
-    convolution = function(u) (CFR * f(u))
     
+    ### Compute the empirical cumulative distribution function                                  
+    f = ecdf(x1+x2) 
+    convolution = function(u) (CFR * f(u)) 
+    ### convolution = CFR*(Gamma(5.1,0.86) + Gamma(18.8,0.45)) 
+    ### This is pi_m in the paper which is defined as "the infection to death distribution" 
+    ### This is gives a continuous RV but is discretised later which is what f is below 
+    ### (confusing given f is also an object above)
+    ### This is different to convolution defined in the stan model, NC 010420
+
+    ### Discretization of pi_m (convolution)
     h[1] = (convolution(1.5) - convolution(0)) 
     for(i in 2:length(h)) {
       h[i] = (convolution(i+.5) - convolution(i-.5)) / (1-convolution(i-.5))
@@ -166,11 +234,12 @@ for(Country in countries) {
   for(i in 2:N2) {
     s[i] = s[i-1]*(1-h[i-1])
   }
-  f = s * h
-  
-  
-  
-  
+  f = s * h ## f is the weight used in estimating the expected no. of deaths. 
+```
+
+This is just appending all the data to the `stan data` object. 
+
+```{r standata3, eval = FALSE}
   y=c(as.vector(as.numeric(d1$Cases)),rep(-1,forecast))
   reported_cases[[Country]] = as.vector(as.numeric(d1$Cases))
   deaths=c(as.vector(as.numeric(d1$Deaths)),rep(-1,forecast))
@@ -233,6 +302,12 @@ if(DEBUG) {
 }
 
 stan_data$y = t(stan_data$y)
+
+```
+
+### Run the model 
+
+```{r runstan, eval = FALSE}
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
 m = stan_model(paste0('stan-models/',StanModel,'.stan'))
@@ -243,7 +318,11 @@ if(DEBUG) {
   # fit = sampling(m,data=stan_data,iter=4000,warmup=2000,chains=8,thin=4,control = list(adapt_delta = 0.90, max_treedepth = 10))
   fit = sampling(m,data=stan_data,iter=200,warmup=100,chains=4,thin=4,control = list(adapt_delta = 0.90, max_treedepth = 10))
 }  
+```
 
+### Get Results
+
+```{r res, eval = FALSE}
 out = rstan::extract(fit)
 prediction = out$prediction
 estimated.deaths = out$E_deaths
@@ -284,14 +363,3 @@ ggsave(sprintf("results/%s-covars-final-rt.pdf",filename),g,width=4,height=6)
 system(paste0("Rscript plot-3-panel.r ", filename,'.Rdata'))
 system(paste0("Rscript plot-forecast.r ",filename,'.Rdata')) ## to run this code you will need to adjust manual values of forecast required
 ```
-
-
-## Including Plots
-
-Resulting plots are...
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
