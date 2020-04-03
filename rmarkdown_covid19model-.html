@@ -371,14 +371,15 @@ for(Country in countries) {
     ### Compute the empirical cumulative distribution function     
     ### This is the discretisation of the two gammas in pi_m
     f = ecdf(x1+x2) 
+    ### convolution = CFR*(Gamma(5.1,0.86) + Gamma(18.8,0.45))
     convolution = function(u) (CFR * f(u))
-    ### Wikipedia definition of convolution! &quot;In mathematics convolution is a mathematical operation on two functions that produces a  third function expressing how the shape of one is modified by the other. The term convolution refers to both the result function and to the process of computing it.&quot;&quot;
-    ### convolution = CFR*(Gamma(5.1,0.86) + Gamma(18.8,0.45)) 
     ### This is pi_m in the paper which is defined as &quot;the infection to death distribution&quot; for country m
     ### This is gives a continuous RV but is discretised later which is what f is below 
     ### (confusing given f is also an object above)
     ### This is different to convolution defined in the stan model, NC 010420
 
+    ### Wikipedia definition of convolution! &quot;In mathematics convolution is a mathematical operation on two functions that produces a  third function expressing how the shape of one is modified by the other. The term convolution refers to both the result function and to the process of computing it.&quot;&quot;
+    
     ### Discretization of pi_m (convolution)
     h[1] = (convolution(1.5) - convolution(0)) 
     for(i in 2:length(h)) {
