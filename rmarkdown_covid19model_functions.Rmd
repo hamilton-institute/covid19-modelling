@@ -15,7 +15,7 @@ This is our attempt to annotate and understand the Covid-19 modelling functions 
 
 The model is:
 deaths[country, time] ~ NegBin (mu[country, time], phi), where mu is an integral which takes account the lag of the disease. and phi is ~ Normal(0,5);
-?It's an S(?E)IR model but with approximations for the derivatives. Note that there's no spatial element. No underlying clustering model based on geographical location. Seems like there should be?!?!
+?It's an S(?E)IR model but with ?Not really sure how they link tbh? approximations for the derivatives. Note that there's no spatial element. No underlying clustering model based on geographical location. Seems like there should be?!?!
 
 ## A close look at some of the functionality
 They use stan to run their MCMC methods. However, the base.stan file is not very well commented. Let's try to add some helpful comments!

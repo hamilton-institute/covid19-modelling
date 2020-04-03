@@ -58,9 +58,10 @@ print(sprintf("Running %s",StanModel))
 d=readRDS('data/COVID-19-up-to-date.rds')
 
 ### Get CFR
-### This is the probability of dying given infection for different age categories. 
+### This spreadsheet gives the probability of dying given infection for different age categories. 
 ### Presumably calculated from deaths and cases that are reported. 
 ### We would need to add a row for *Ireland*.
+### Note that only the overall CFR is used not the age based one.
 cfr.by.country = read.csv("data/weighted_fatality.csv")
 ### Notation
 cfr.by.country$country = as.character(cfr.by.country[,2])
@@ -181,7 +182,7 @@ The goal below is the get `f` which in the paper is denoted $\pi_{s,m}$; the "in
 
 $\pi_m \sim CFR_m*(\Gamma(5.1,0.86) + \Gamma(18.8,0.45))$,
 
-where $CFR_m$ is the probability of dying given infection for different age categories (pre-calculated and read in above).
+where $CFR_m$ is the probability of dying given infection (pre-calculated and read in above).
 
 Then $\pi_m$ is discretized to give $\pi_{s,m}$ which is used in the calculation for the expected number of deaths in the stan model as follows: 
 
