@@ -336,8 +336,9 @@ for(Country in countries) {
   
   dates[[Country]] = d1$date</code></pre>
 <p><strong>A note on probability of death depending on no. days since infection:</strong></p>
-<p>The goal below is the get <code>f</code> which in the paper is denoted <span class="math inline">\(\pi_{s,m}\)</span>. This is the weight used in the calculation of the expected number of deaths. <span class="math inline">\(\pi_{s,m}\)</span> is derived from <span class="math inline">\(\pi_m\)</span> (labeled as <code>convolution</code> in the code) where</p>
-<p><span class="math inline">\(\pi_m \sim CFR_m*(Gamma(5.1,0.86) + Gamma(18.8,0.45))\)</span></p>
+<p>The goal below is the get <code>f</code> which in the paper is denoted <span class="math inline">\(\pi_{s,m}\)</span>; the “infection-to-death distribution”, on a given day <span class="math inline">\(s\)</span>, for country, <span class="math inline">\(m\)</span>. This is the weight used in the calculation of the expected number of deaths. <span class="math inline">\(\pi_{s,m}\)</span> is derived from <span class="math inline">\(\pi_m\)</span> (labeled as <code>convolution</code> in the code) where</p>
+<p><span class="math inline">\(\pi_m \sim CFR_m*(\Gamma(5.1,0.86) + \Gamma(18.8,0.45))\)</span>,</p>
+<p>where <span class="math inline">\(CFR_m\)</span> is the probability of dying given infection for different age categories (pre-calculated and read in above).</p>
 <p>Then <span class="math inline">\(\pi_m\)</span> is discretized to give <span class="math inline">\(\pi_{s,m}\)</span> which is used in the calculation for the expected number of deaths in the stan model as follows:</p>
 <p><span class="math inline">\(d_{t,m} = \sum_{\tau = 0}^{t-1}c_{\tau,m}\times\pi_{t-\tau,m}\)</span></p>
 <p>The number of deaths at time t is the sum of the past infections (<span class="math inline">\(c_{\tau,m}\)</span>) weighted by their probability of death, where the probability of death depends on the number of days since infection.</p>
@@ -367,11 +368,13 @@ for(Country in countries) {
     x1 = rgammaAlt(5e6,mean1,cv1) # infection-to-onset ----&gt; do all people who are infected get to onset? Incubation period, NC 010420
     x2 = rgammaAlt(5e6,mean2,cv2) # onset-to-death
     
-    ### Compute the empirical cumulative distribution function                                  
+    ### Compute the empirical cumulative distribution function     
+    ### This is the discretisation of the two gammas in pi_m
     f = ecdf(x1+x2) 
-    convolution = function(u) (CFR * f(u)) 
+    convolution = function(u) (CFR * f(u))
+    ### Wikipedia definition of convolution! &quot;In mathematics convolution is a mathematical operation on two functions that produces a  third function expressing how the shape of one is modified by the other. The term convolution refers to both the result function and to the process of computing it.&quot;&quot;
     ### convolution = CFR*(Gamma(5.1,0.86) + Gamma(18.8,0.45)) 
-    ### This is pi_m in the paper which is defined as &quot;the infection to death distribution&quot; 
+    ### This is pi_m in the paper which is defined as &quot;the infection to death distribution&quot; for country m
     ### This is gives a continuous RV but is discretised later which is what f is below 
     ### (confusing given f is also an object above)
     ### This is different to convolution defined in the stan model, NC 010420
@@ -381,6 +384,7 @@ for(Country in countries) {
     for(i in 2:length(h)) {
       h[i] = (convolution(i+.5) - convolution(i-.5)) / (1-convolution(i-.5))
     }
+
   }
   s = rep(0,N2)
   s[1] = 1 
