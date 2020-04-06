@@ -16,6 +16,7 @@ library(EnvStats)
 
 
 This is our attempt to annotate and understand the Covid-19 modelling code made public at <https://github.com/ImperialCollegeLondon/covid19model>. 
+Write up is available at <https://www.imperial.ac.uk/media/imperial-college/medicine/sph/ide/gida-fellowships/Imperial-College-COVID19-Europe-estimates-and-NPI-impact-30-03-2020.pdf>
 
 ### To run the code
 
@@ -96,13 +97,19 @@ covariates$self_isolating_if_ill[covariates$self_isolating_if_ill > covariates$l
 __A note on SI:__
 SI is serial interval, defined in the paper as "the time between when a person gets infected and when they subsequently infect other people". The paper says this is g ~ Gamma(6.5,0.62). You get the data below using dgamma(1:100,6.5,0.62). 
 
+
+    
 ```{r SI}
 ### So serial.interal$fit is the probability density and $X is time in days (1 to 100)
 serial.interval = read.csv("data/serial_interval.csv") 
 
-### Plot Fig 6 in paper supplemental
+### Plot Fig 7 in paper supplemental
 plot(serial.interval$X[1:20], serial.interval$fit[1:20], type = "l")
+  
+
 ```
+
+
 
 ### Creating data for stan model
 
@@ -178,17 +185,22 @@ for(Country in countries) {
 
 __A note on probability of death depending on no. days since infection:__
 
-The goal below is the get `f` which in the paper is denoted $\pi_{s,m}$; the "infection-to-death distribution", on a given day $s$, for country, $m$. This is the weight used in the calculation of the expected number of deaths. $\pi_{s,m}$ is derived from $\pi_m$ (labeled as `convolution` in the code) where
+The goal below is to calculate `f` which in the paper is denoted $\pi_{s,m}$; the "infection-to-death distribution", on a given day $s$, for country, $m$. This is the weight used in the calculation of the expected number of deaths. $\pi_{s,m}$ is derived from $\pi_m$ (labeled as `convolution` in the code) where
 
 $\pi_m \sim CFR_m*(\Gamma(5.1,0.86) + \Gamma(18.8,0.45))$,
 
-where $CFR_m$ is the probability of dying given infection (pre-calculated and read in above).
+where $CFR_m$ is the probability of dying given infection for different age categories (pre-calculated and read in above).
 
 Then $\pi_m$ is discretized to give $\pi_{s,m}$ which is used in the calculation for the expected number of deaths in the stan model as follows: 
 
 $d_{t,m} = \sum_{\tau = 0}^{t-1}c_{\tau,m}\times\pi_{t-\tau,m}$
 
 The number of deaths at time t  is the sum of the past infections ($c_{\tau,m}$) weighted by their probability of death, where the probability of death depends on the number of days since infection.
+
+__A note on assumptions in the model:__
+Do not assume homogeneous attacks across age-groups - they do here per Cathal Walsh.
+Instead they do a funky reweighting (middle of page 17) 
+They start modelling from 10 deaths as before that probably due to cases from abroad.
 
 ```{r standata2, eval = FALSE}
   ### hazard estimation
@@ -244,6 +256,15 @@ The number of deaths at time t  is the sum of the past infections ($c_{\tau,m}$)
   f = s * h ## f is the weight used in estimating the expected no. of deaths. 
 ```
 
+```{r}
+### Plot Gamma distribution for infection to onset of symptoms and onset to death
+mean1 = 5.1; cv1 = 0.86; # infection to onset
+plot(dgammaAlt(0:40,mean1,cv1) , type = "l",main="Infection to onset of symptoms")
+mean2 = 18.8; cv2 = 0.45 # onset to death
+plot(dgammaAlt(0:80,mean2,cv2) , type = "l",main="Onset of symptoms to death")
+```
+      
+      
 This is just appending all the data to the `stan data` object. 
 
 ```{r standata3, eval = FALSE}
