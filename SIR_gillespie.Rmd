@@ -1,0 +1,130 @@
+---
+title: "SIR model with Gillespie algorithm"
+output: html_notebook
+---
+
+In this notebook, I try to simulate a simple Susceptible, Infected, Removed (SIR) model using the Gillespie algorithm. Much of this notebook is a translation of the Wikipedia page on the [Gillespie Algorithm](https://en.wikipedia.org/wiki/Gillespie_algorithm#Another_example:_The_SIR_epidemic_without_vital_dynamics), though the page is rather opaque and incomplete. I also got some good information from [this page](http://people.uleth.ca/~roussel/C4000foundations/slides/25stochsim.pdf), and [this paper](https://web.stanford.edu/~jhj1/teachingdocs/Jones-on-R0.pdf).
+
+### Gillespie algorithm
+
+The Gillespie algorithm works as follows:
+
+  1. Store initial population and rate constants, set $t=0$
+  1. Use the differential equation rates to generate random numbers $w_1, \ldots, w_{m-1}$ of the likelihood of an event in the next time window. $m$ is the number of compartment (for SIR this is 3)
+  1. Scale these to be probabilities by dividing by $W = \sum_j w_j$
+  1. Generate a random uniform number U and determine which window $0 < w_1 < w_1 + w_2 < \ldots < W$ it falls in
+  1. Set the new time to be $t$ plus a random exponential with rate $W$
+  1. Increment the events depending on which event $U$ decided occured. 
+
+### Notation
+
+I will use the following notation:
+
+- $N$ = size of the population
+- $n_S(t)$ =  number of susceptible people at time $t$
+- $n_I(t)$ = number of infected people at time $t$
+- $n_R(t)$ = number of removed people at time $t$
+- $\alpha$ = rate parameter at which people transition from susceptible to infected
+- $\beta$ = rate parameter at which people transition from infected to recovered
+
+(Note the Wikipedia page also uses a $V$ which is not defined so I have set it to 1)
+
+### Model
+
+The model dynamics can be written as a set of ordinary differential equations:
+
+$$\frac{d n_S}{dt} = -\alpha n_S n_I$$
+
+$$\frac{d n_I}{dt} = \left( \alpha n_S - \beta \right) n_I$$
+$$\frac{d n_R}{dt} = \beta n_I$$
+
+In this model $R_0$ (the basic reproduction number) is $\beta/\alpha$.
+
+### Creating sample realisations
+
+I will now use the Gillespie algorithm to simulate a sample path for a given set of parameter values in R.
+
+First I will set up the data values and rate parameters
+```{r}
+# Number of individuals in population
+N = 100
+# Max time value
+T = 100
+# Rate parameters
+alpha = 0.05  # Rate S -> I
+beta = 0.5 # Rate I -> R
+# Initial value of infected population
+n_I = 1
+# Assum recoved is zero
+n_R = 0
+# So n_S is the remainder:
+n_S = N - n_I
+# Initial time value
+t = 0
+# Count of iterations
+count = 1
+```
+
+
+Next create a holder for the values and set the seed
+```{r}
+library(tibble)
+store = tibble(
+  Time = rep(NA, T),
+  Susceptible = rep(NA, T),
+  Infected = rep(NA, T),
+  Removed = rep(NA, T),
+)
+set.seed(123)
+```
+
+Now loop through to simulate values
+
+```{r}
+while(t < T) {
+  # Stop if the number of infected is 0
+  if(n_I == 0) break
+  
+  # Store data values
+  store[count,] = c(t, n_S, n_I, n_R)
+  count = count + 1
+  
+  # Compute values from differential equations
+  w_1 = alpha * n_S * n_I
+  w_2 = beta * n_I
+  # Sum them
+  W = w_1 + w_2
+  
+  # Increase time
+  #dt = -log(runif(1)) / W
+  dt = rexp(1, rate = W) # Original code used uniform generator
+  t = t + dt
+  
+  # Now increment the svalues
+  if(runif(1) < w_1 / W) {
+    n_S = n_S - 1
+    n_I = n_I + 1
+  } else {
+    n_I = n_I - 1
+    n_R = n_R + 1
+  }
+
+}
+```
+
+### Plot results
+
+Create a plot of the data with:
+
+```{r, message=FALSE}
+library(tidyr)
+library(ggplot2)
+store %>% 
+  drop_na() %>% 
+  pivot_longer(names_to = 'Type', 
+                       values_to = 'People',
+                       -Time) %>% 
+  ggplot(aes(x = Time, y = People, colour = Type)) + 
+  geom_line()
+```
+
