@@ -1,0 +1,179 @@
+---
+title: "A Bayesian SEIR model in JAGS"
+output: html_notebook
+---
+
+```{r, echo = FALSE, includ= FALSE}
+rm(list = ls())
+set.seed(103)
+```
+
+
+### Introduction
+
+Following on from the file `Bayes_SIR_JAGS` here I fit the SEIR model to the Irish data set using the John Hopkins data. The notation and meaning of the file is the same as in that file. 
+
+### JAGS model
+
+Below is the code for the JAGS model:
+
+```{r}
+jags_code = '
+model {
+  # Likelihood
+  for (t in 1:T) {
+    N_E_I[t] ~ dbinom(p_E_I, E[t])
+    N_I_R[t] ~ dbinom(p_I_R, I[t])
+    # These are imputed:
+    N_S_E[t] ~ dbinom(p_S_E[t], S[t])
+    R_0[t] <- (beta[t]/gamma)*(S[t]/N)
+  }
+  
+  # These are the known time evolution steps:
+  for(t in 2:T) {
+    S[t] <- S[t-1] - N_S_E[t-1]
+    E[t] <- E[t-1] + N_S_E[t-1] - N_E_I[t-1]
+    I[t] <- I[t-1] + N_E_I[t-1] - N_I_R[t-1]
+    R[t] <- N - S[t] - E[t] - I[t]
+  }
+
+  # Need a value for S[1], E[1], and I[1]
+  I[1] <- I_start # Assume the number of people infected on day 1 is the same as those transitioning from E to I
+  R[1] <- R_start # As above but for removed
+  E[1] <- E_start
+  S[1] <- N - I[1] - E[1] - R[1] # Left over
+  
+  # This is the prior on p_S_E[t]
+  for(t in 1:T) {
+    p_S_E[t] <- 1 - exp( - beta[t] * I[t] / N )
+  }
+  
+  # Sort out the change point
+  for(t in 1:(t_star - 1)) {
+    beta[t] <- beta_const
+  } 
+  for (t in t_star:T) {
+    beta[t] <- beta_const * exp( - q * (t - t_star))
+  }
+  
+  # These are the priors on the other probabilities
+  p_E_I <- 1 - exp( -rho )
+  p_I_R <- 1 - exp( -gamma )
+  
+  # Now the prior on the hyper-parameters
+  beta_const ~ dunif(0.6, 0.7) # Transmission rate
+  rho <- 1/rho_inv
+  rho_inv ~ dunif(1, 14) # Mean exposure time
+  gamma <- 1/gamma_inv
+  gamma_inv ~ dunif(1, 14) # Mean infection length
+  q ~ dunif(0.0, 0.01) # Effect of intervention
+  
+  # Can now fit into the future
+  for (t in (T+1):T_max) {
+  
+    # Transitions
+    N_E_I[t] ~ dbinom(p_E_I, E[t])
+    N_I_R[t] ~ dbinom(p_I_R, I[t])
+    N_S_E[t] ~ dbinom(p_S_E[t], S[t])
+    
+    # R_0
+    R_0[t] = (beta[t]/gamma)*(S[t]/N)
+    
+    # Compartment values
+    S[t] <- S[t-1] - N_S_E[t-1]
+    E[t] <- E[t-1] + N_S_E[t-1] - N_E_I[t-1]
+    I[t] <- I[t-1] + N_E_I[t-1] - N_I_R[t-1]
+    R[t] = N - S[t] - E[t] - I[t]
+    
+    # Probability values
+    p_S_E[t] <- 1 - exp( - beta[t] * I[t] / N )
+    beta[t] <- beta_const * exp( - q * (t - t_star))
+  }
+}
+'
+```
+
+### Fit to Irish data
+
+To fit the model to real data we need:
+
+- The number of people infected on day $t$. We have a (poor) estimate of this
+- The number of people recovered on day $t$. We have a (very poor) estimate of this
+- Good estimates of the values of the transmission rate, the mean length of time of exposure, and the mean length of time of infection
+- Good estimates of the starting values of the number of exposed and infected people. I'm not sure we have either of these. 
+
+Because the John Hopkins data includes the recovery data too I will use that combined with deaths to model removed values. Lots of these values will be wrong or quite wildly different from the truth.
+
+Load in the John Hopkins data and select Ireland:
+```{r, message=FALSE}
+library(tidycovid19)
+library(dplyr)
+jh_data = download_jhu_csse_covid19_data(silent = TRUE, 
+                                         cached = TRUE) %>% 
+  filter(country == "Ireland",
+         date > as.Date("2020-02-29")) %>% 
+  rename(cum_cases = confirmed) %>% 
+  mutate(cum_removed = recovered + deaths,
+         cases = c(cum_cases[1], diff(cum_cases)),
+         removed = c(cum_removed[1], diff(cum_removed)),
+         days_since_29_2 = date - as.Date("2020-02-29"))
+```
+
+I'm going to assume that the population of Ireland is 4.5 million and that the time of the intervention was March 12th (which was 12 days after 29/2) when all schools were closed, though there was a further lockdown on March 24th.
+
+Now fit the jags model:
+
+```{r, message= FALSE,  results='hide', warning=FALSE}
+N_future = 100 # Forecast 100 days into the future
+T = nrow(jh_data)
+t_star = 12
+T_max = T + N_future 
+jags_data = list(N = 4500000,
+                 T = T,
+                 T_max = T_max, 
+                 t_star = t_star,
+                 I_start = jh_data$cases[1],
+                 E_start = 100,
+                 R_start = jh_data$removed[1],
+                 N_E_I = c(jh_data$cases, rep(NA, N_future)),
+                 N_I_R = c(jh_data$removed, rep(NA, N_future))) 
+
+jags_run = jags(data = jags_data,
+                parameters.to.save = c("gamma_inv", "q", "beta",
+                                       "rho_inv", "beta_const", 
+                                       "S", "E", "I", "R", "R_0"),
+                model.file = textConnection(jags_code))
+plot(jags_run)
+```
+
+Plot the output
+
+```{r}
+S_post = jags_run$BUGSoutput$median$S
+E_post = jags_run$BUGSoutput$median$E
+I_post = jags_run$BUGSoutput$median$I
+R_post = jags_run$BUGSoutput$median$R
+
+tibble_emp = tibble(t = 1:T,
+       E_emp = jh_data$cum_cases,
+       R_emp = jh_data$cum_removed) %>% 
+  pivot_longer(names_to = 'Compartment', values_to = 'People', -t)
+tibble(t = 1:T_max,
+       E_post, I_post, R_post) %>% 
+  pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>% 
+  ggplot(aes(x = t, y = People, colour = Compartment)) + 
+  geom_vline(xintercept = t_star) +
+  geom_line() + 
+  geom_point(data = tibble_emp)
+```
+
+Plot $R_0(t)$:
+
+```{r}
+R0_post = jags_run$BUGSoutput$median$R_0
+tibble(t = 1:T_max,
+       R0_post = R0_post) %>% 
+  ggplot(aes(x = t, y = R0_post)) + 
+  geom_vline(xintercept = t_star) + 
+  geom_line()
+```
