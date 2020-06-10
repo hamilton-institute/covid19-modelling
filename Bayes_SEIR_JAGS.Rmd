@@ -3,9 +3,12 @@ title: "A Bayesian SEIR model in JAGS"
 output: html_notebook
 ---
 
-```{r, echo = FALSE, includ= FALSE}
+```{r, echo = FALSE, include = FALSE}
 rm(list = ls())
 set.seed(102)
+library(ggplot2)
+library(tidyverse)
+library(R2jags)
 ```
 
 
@@ -31,7 +34,7 @@ Now latent variables:
 
 - Let $S(t)$ be the number of susceptible individuals at time $t$ with starting value $S(1)$
 - Let $I(t)$ be the number of infected individuals at time $t$ with starting value $I(1)$
-- Let $T(t)$ be the number of removed individuals at time $t$ with starting value $R(1)$
+- Let $R(t)$ be the number of removed individuals at time $t$ with starting value $R(1)$
 
 Some parameters:
 
@@ -99,9 +102,8 @@ Ideally, the data for this model would be $N, N_{S \rightarrow E}(t), N_{E \righ
 ### JAGS model
 
 Below is some code for a JAGS model:
-
 ```{r}
-jags_code = '
+jags_code = "
 model {
   # Likelihood
   for (t in 1:T) {
@@ -173,7 +175,7 @@ model {
     beta[t] <- beta_const * exp( - q * (t - t_star))
   }
 }
-'
+"
 ```
 
 ### Fit to simulated data
@@ -227,8 +229,6 @@ for (t in 2:T) {
 R_0 = (beta/gamma)*(S/N)
 
 # Create a plot of the epidemic
-library(ggplot2)
-library(tidyr)
 tibble(t = 1:T,
        S, E, I, R) %>% 
   pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>% 
@@ -253,8 +253,8 @@ jags_data = list(N = N,
                  N_E_I = c(N_E_I, rep(NA, N_future)),
                  N_I_R = c(N_I_R, rep(NA, N_future))) 
 
-library(R2jags)
-  jags_run = jags(data = jags_data,
+
+jags_run = jags(data = jags_data,
                 parameters.to.save = c("gamma_inv", "q", "beta",
                                        "rho_inv", "beta_const", 
                                        "S", "E", "I", "R", "R_0"),
@@ -283,15 +283,21 @@ tibble(t = 1:T_max,
 
 ```
 
-Also plot the dynamic $R_0$ against it's true value
+Also plot the dynamic $R_0$ against it's true value with uncertainty
 
 ```{r}
-R0_post = jags_run$BUGSoutput$median$R_0
+R0_post = jags_run$BUGSoutput$sims.list$R_0
+R0_low = apply(R0_post, 2, quantile, 0.25)
+R0_med = apply(R0_post, 2, quantile, 0.5)
+R0_high = apply(R0_post, 2, quantile, 0.75)
+
 tibble(t = 1:T_max,
        R0_true = c(R_0, rep(NA, N_future)),
-       R0_post = R0_post) %>% 
+       R0_med = R0_med) %>% 
   pivot_longer(names_to = 'Type', values_to = 'R0', -t) %>% 
   ggplot(aes(x = t, y = R0, colour = Type)) + 
   geom_vline(xintercept = t_star) + 
-  geom_line()
+  geom_line() + 
+  geom_ribbon(aes(x = 1:T_max,
+                  ymin = R0_low, ymax = R0_high))
 ```
