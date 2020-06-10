@@ -167,7 +167,7 @@ I will first try simulating some data from this model and checking that JAGS act
 ```{r}
 # Summary values
 N = 1e3 # Population size
-T = 50 # Maximum time steps
+T = 30 # Maximum time steps
 t = 1:T
 
 # First the hyper-parameters
