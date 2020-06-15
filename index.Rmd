@@ -1,0 +1,18 @@
+---
+title: "Hamilton Institute COVID-19 model directory"
+author: "Andrew Parnell & Niamh Cahill"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Please see the list below for notebooks detailing the different models in this repository
+
+1. A simple SIR model written in JAGS: [html version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR.nb.html) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR.Rmd)
+1. An SIR model with a change-point due to a lockdown: [html version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR_changepoint.Rmd) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR_changepoint.Rmd)
+
+
+
+
