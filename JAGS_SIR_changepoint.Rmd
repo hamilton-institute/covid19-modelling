@@ -3,7 +3,7 @@ title: "A Bayesian SIR model in JAGS"
 output: html_notebook
 ---
 
-```{r, echo = FALSE, include= FALSE}
+```{r, echo = FALSE, includ= FALSE}
 rm(list = ls())
 set.seed(102)
 ```
@@ -13,7 +13,9 @@ set.seed(102)
 
 In this notebook I am going to fit a Bayesian SIR model in JAGS. Some of this material is a simplification of the more advanced spatial SEIRS model found in this [thesis](https://ir.uiowa.edu/etd/1554/) by Grant Brown from 2015 which is well worth reading. Another very useful paper is [Lekone and Finkelstadt](https://onlinelibrary.wiley.com/doi/full/10.1111/j.1541-0420.2006.00609.x?casa_token=_3CKtdvUxAgAAAAA:74e1tIqSoCFQlE6k8WmaCjc1shBMMIe435o7uF36QLkPw-kPeJqzLwC4ZB0LCIpnh8cNDLM-O2ULZqQ) which has no spatial aspect, and is the majority of what is re-created here. I have changed the notation to what I believe is a clearer version.
 
-The main idea is to simplify the differential equations of the SIR model into difference equations and then use probability distributions and transmission matrices to quantify uncertainties between compartments. All time is treated as discrete, which is fine for current COVID-19 data which is almost all available at a daily time step. In another document I will extend this model to SEIR, and further a spatial or stratified type model. It may be possible to fit a similar model in Stan but this would require integrating out many of the discrete parameters. 
+The main idea is to simplify the differential equations of the SIR model into difference equations and then use probability distributions and transmission matrices to quantify uncertainties between compartments. All time is treated as discrete, which is fine for current COVID-19 data which is almost all available at a daily time step. In another document I will extend this model to SIER, and further a spatial or stratified type model. In the next document I will fit this model to a chosen country from the ECDC data set. 
+
+It may be possible to fit a similar model in Stan but this would require integrating out many of the discrete parameters. 
 
 ### Notation
 
@@ -21,8 +23,8 @@ First data:
 
 - Let $t$ be time for $t = 1, \ldots, T$ with all time points known and equally spaced. 
 - Let $N$ be the population size
-- Let $N_{S \rightarrow I}(t)$ be the number of susceptible people who get infected at time $t$. This, if known, is the number of cases at time $t$.
-- Let $N_{I \rightarrow R}(t)$ be the number of infected people who are removed (died or recovered) at time $t$. We have a (likely reasonable) estimate of the number of people who have died at time $t$ (or at least before time $t$) but a much poorer estimate of the number who have recovered. The latter is reported by John Hopkins but likely to be a massive under-estimate, or based on quite strict assumptions of disease length.
+- Let $N_{S \rightarrow I}(t)$ be the number of susceptible people who get infected at time $t$. This is included for the moment as data but often is actually unknown.
+- Let $N_{I \rightarrow R}(t)$ be the number of infected people who are removed (died or recovered) at time $t$. We have a (likely reasonable) estimate of the number of people who have died at time $t$ (or at least before time $t$) but a much poorer estimate of the number who have recovered. The latter is reported by John Hopkins but likely to be a massive under-estimate.
 
 Now latent variables:
 
@@ -32,7 +34,8 @@ Now latent variables:
 
 Some parameters:
 
-- $\beta$ is the base transmission rate, i.e. the rate at which susceptible individuals become infected
+- $\beta$ is the base transmission rate before control measures are introduced, i.e. the rate at which susceptible individuals become infected
+- $q$ is a parameter that controls how the transmission rate decays with control measures
 - $\gamma$ is a parameter that controls the rate at which infected individuals are removed. I think the inverse of this is the mean number of days before an infected individual becomes removed
 
 Some extra parameters are derived:
@@ -65,18 +68,23 @@ In words these equations mean:
 
 These probabilities are set at
 
-$$p_{S \rightarrow I}(t) = 1 - \exp \left( - \beta \right)$$
+$$p_{S \rightarrow I}(t) = 1 - \exp \left[ - \frac{\beta(t)}{N} I(t) \right]$$
 This equation makes the proportion of people moving from susceptible to infected dependent on the proportion of people who are infected ($I(t)/N$), i.e. the greater the proportion of people infected, the fewer can become infected. 
 
 $$p_{I \rightarrow R} = 1 - \exp( - \gamma)$$
 where 
 
-- $\beta$ is the transmission rate
+- $\beta(t)$ is the time dependent transmission rate
 - $1/\gamma$ is the mean infectious period
+
+Finally, the transmission rate is assumed to be constant up until a time point $t^*$ at which point control measures are introduced:
+
+$$\beta(t) = \left\{ \begin{array}{ll} \beta, & t< t^* \\
+\beta e^{-q(t - t^*)}, & t \ge t^* \end{array} \right.$$
 
 One of the key parameters to estimate is the basic reproduction number which is defined as $R_0$ or $\beta / \gamma$ in this notation. This model has the cool feature that we can estimate a time dependent reproduction number as: 
 
-$$ R_0(t) = \frac{\beta}{\gamma}$$
+$$ R_0(t) = \frac{\beta(t)}{\gamma} \frac{S(t)}{N}$$
 
 Ideally, the data for this model would be $N, N_{S \rightarrow I}(t), N_{I \rightarrow R}(t)$, the latter three for all time values. In fact we often do not have access to $N_{S \rightarrow I}(t)$ (the number of susceptible individuals who become infected) so we may need to integrate out these values during the Bayesian model.
 
@@ -90,9 +98,11 @@ model {
   # Likelihood
   for (t in 1:T) {
     N_I_R[t] ~ dbinom(p_I_R, I[t])
-    N_S_I[t] ~ dbinom(p_S_I, S[t])
+    # These are imputed:
+    N_S_I[t] ~ dbinom(p_S_I[t], S[t])
+    R_0[t] <- (beta[t]/gamma)*(S[t]/N)
   }
-
+  
   # These are the known time evolution steps:
   for(t in 2:T) {
     S[t] <- S[t-1] - N_S_I[t-1]
@@ -104,28 +114,47 @@ model {
   I[1] <- I_start # Assume the number of people infected on day 1 is the same as those transitioning from E to I
   R[1] <- R_start # As above but for removed
   S[1] <- N - I[1] - R[1] # Left over
-
-  # Probabilities and R_0  
-  p_S_I <- 1 - exp( - beta )
+  
+  # This is the prior on p_S_I[t]
+  for(t in 1:T) {
+    p_S_I[t] <- 1 - exp( - beta[t] * I[t] / N )
+  }
+  
+  # Sort out the change point
+  for(t in 1:(t_star - 1)) {
+    beta[t] <- beta_const
+  } 
+  for (t in t_star:T) {
+    beta[t] <- beta_const * exp( - q * (t - t_star))
+  }
+  
+  # These are the priors on the other probabilities
   p_I_R <- 1 - exp( -gamma )
-  R_0 <- (beta/gamma)
-
+  
   # Now the prior on the hyper-parameters
-  beta ~ dunif(0.3, 1) #= 0.6
+  beta_const ~ dunif(0.3, 0.6) #= 0.4
   gamma <- 1/gamma_inv
-  gamma_inv ~ dunif(6, 12) # 10
-
+  gamma_inv ~ dunif(5,8) # 6
+  q ~ dbeta(2, 10) # 0.2
+  
   # Can now forecast into the future
   for (t in (T+1):T_max) {
   
     # Transitions
     N_I_R[t] ~ dbinom(p_I_R, I[t])
-    N_S_I[t] ~ dbinom(p_S_I, S[t])
+    N_S_I[t] ~ dbinom(p_S_I[t], S[t])
+    
+    # R_0
+    R_0[t] = (beta[t]/gamma)*(S[t]/N)
     
     # Compartment values
     S[t] <- S[t-1] - N_S_I[t-1]
     I[t] <- I[t-1] + N_S_I[t-1] - N_I_R[t-1]
     R[t] = N - S[t] - I[t]
+    
+    # Probability values
+    p_S_I[t] <- 1 - exp( - beta[t] * I[t] / N )
+    beta[t] <- beta_const * exp( - q * (t - t_star))
   }
 }
 '
@@ -137,23 +166,27 @@ I will first try simulating some data from this model and checking that JAGS act
 
 ```{r}
 # Summary values
-N = 1000 # Population size
+N = 1e3 # Population size
 T = 30 # Maximum time steps
 t = 1:T
 
 # First the hyper-parameters
+t_star = 20 # Days in before intervention
 gamma_inv = 10; gamma = 1/gamma_inv
-beta = 0.6
+beta_const = 0.6
+q = 0.4
 
 # Now the probabilities
 p_I_R = 1 - exp(-gamma)
-p_S_I = 1 - exp(-beta)
 
 # Give an initial values for everthing required
-N_S_I = N_I_R = S = I = R = rep(NA, T)
+p_S_I = N_S_I = N_I_R = S = I = R = beta = rep(NA, T)
+beta[1:(t_star - 1)] = beta_const
+beta[t_star:T] = beta_const * exp( - q * (t[t_star:T] - t_star))
 
 S[1] = N - 10; I[1] = 10; R[1] = 0
-N_S_I[1] = rbinom(1, S[1], p_S_I)
+p_S_I[1] =  1 - exp( - beta[1] * I[1] / N )
+N_S_I[1] = rbinom(1, S[1], p_S_I[1])
 N_I_R[1] = rbinom(1, I[1], p_I_R)
 
 # Now can loop through filling in the other values
@@ -161,23 +194,25 @@ for (t in 2:T) {
   S[t] <- S[t-1] - N_S_I[t-1]
   I[t] <- I[t-1] + N_S_I[t-1] - N_I_R[t-1]
   R[t] = N - S[t] - I[t] 
-
+  p_S_I[t] <- 1 - exp( - beta[t] * I[t] / N )
+  
   # Now get the actual values
   N_I_R[t] = rbinom(1, I[t], p_I_R)
   # These are usually imputed:
-  N_S_I[t] = rbinom(1, S[t], p_S_I)
+  N_S_I[t] = rbinom(1, S[t], p_S_I[t])
 }
 
 # Create R0
-R_0 = (beta/gamma)
+R_0 = (beta/gamma)*(S/N)
 
 # Create a plot of the epidemic
 library(ggplot2)
 library(tidyr)
 tibble(t = 1:T,
-       S, I, R) %>%
-  pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>%
-  ggplot(aes(x = t, y = People, colour = Compartment)) +
+       S, I, R) %>% 
+  pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>% 
+  ggplot(aes(x = t, y = People, colour = Compartment)) + 
+  geom_vline(xintercept = t_star) +
   #scale_y_log10() +
   geom_line()
 ```
@@ -190,15 +225,17 @@ T_max = T + N_future
 jags_data = list(N = N,
                  T = T,
                  T_max = T_max, 
+                 t_star = t_star,
                  I_start = I[1],
                  R_start = R[1],
-                 N_S_I = c(N_S_I, rep(NA, N_future)), # You can comment out this line if you want it to not have the number of cases. 
+                 N_S_I = c(N_S_I, rep(NA, N_future)),
                  N_I_R = c(N_I_R, rep(NA, N_future))) 
 
 library(R2jags)
 jags_run = jags(data = jags_data,
-                parameters.to.save = c("gamma_inv", "beta",
-                                       "S","I", "R", "R_0"),
+                parameters.to.save = c("gamma_inv", "q", "beta",
+                                       "beta_const", "S","I", 
+                                       "R", "R_0"),
                 model.file = textConnection(jags_code))
 plot(jags_run)
 ```
@@ -211,29 +248,23 @@ I_post = jags_run$BUGSoutput$median$I
 R_post = jags_run$BUGSoutput$median$R
 
 tibble(t = 1:T_max,
-  S_post, I_post, R_post) %>%
-  pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>%
-  ggplot(aes(x = t, y = People, colour = Compartment)) +
+  S_post, I_post, R_post) %>% 
+  pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>% 
+  ggplot(aes(x = t, y = People, colour = Compartment)) + 
+  geom_vline(xintercept = t_star) + 
   geom_line()
 
 ```
 
-Now plot the parameter estimates against their true values
+Also plot the dynamic $R_0$ against it's true value
 
 ```{r}
-post = jags_run$BUGSoutput$sims.list
-tibble(iter = 1:length(post$beta),
-       beta = post$beta,
-       gamma_inv = post$gamma_inv,
-       R0 = post$R_0) %>%
-  pivot_longer(names_to = 'Type', values_to = 'Sample',-iter) %>%
-  ggplot(aes(x = Sample, fill = Type)) +
-  geom_histogram(bins = 30) +
-  facet_wrap(~ Type, scales = 'free') +
-  geom_vline(data = tibble(iter = rep(1, 3),
-                           Sample = c(beta, gamma_inv, R_0),
-                           Type = c('beta', 'gamma_inv', 'R0')),
-             aes(xintercept = Sample)) +
-  theme(legend.position = 'None')
+R0_post = jags_run$BUGSoutput$median$R_0
+tibble(t = 1:T_max,
+       R0_true = c(R_0, rep(NA, N_future)),
+       R0_post = R0_post) %>% 
+  pivot_longer(names_to = 'Type', values_to = 'R0', -t) %>% 
+  ggplot(aes(x = t, y = R0, colour = Type)) + 
+  geom_vline(xintercept = t_star) + 
+  geom_line()
 ```
-All values seem to match, depending on whether you give it the number of cases ($N_{S \rightarrow I}$) or not. 
