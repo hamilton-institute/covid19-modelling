@@ -1,0 +1,185 @@
+---
+title: "A Bayesian SIR model in JAGS fitted to data in Ireland"
+output: html_notebook
+---
+
+```{r, echo = FALSE, include= FALSE}
+rm(list = ls())
+set.seed(102)
+```
+
+
+### Introduction
+
+In the previous notebook (https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR.nb.html) I outlined a very simple SIR model and the notation that goes with it. In this notebook I will use the John Hopkins data for a given country (default Ireland) to show the values that this fitted model produces. You should go back to the referenced file to see all the notation and mathematics behind the model before reading the rest of this document.
+
+There are a number of reasons why this model and these data are inappropriate for drawing conclusions about COVID-19 in Ireland, or any other country. Some of the reasons include:
+
+1. This model is too simplistic a representation of the disease. For example it misses out the possible that people are exposed and infectious but not yet symptomatic (see later SEIR model runs), it assumes a constant transmission rate independent of any interventions (such as a lockdown) and thus a constant reproduction number.
+2. The data are too poor to gain an accurate insight into disease dynamics. The number of cases is only those who were tested and subsequently reported by that national health system. The number of deaths is recorded very differently in many countries, and may also be an underestimate. The number recovered as given by John Hopkins is based on many assumptions and may not be a true picture of those recovered.
+
+Having said all that, let's see what comes out the other end...
+
+### JAGS model
+
+Here is the JAGS code used in the above referenced file
+
+```{r}
+jags_code = '
+model {
+  # Likelihood
+  for (t in 1:T) {
+    N_I_R[t] ~ dbinom(p_I_R, I[t])
+    N_S_I[t] ~ dbinom(p_S_I, S[t])
+  }
+
+  # These are the known time evolution steps:
+  for(t in 2:T) {
+    S[t] <- S[t-1] - N_S_I[t-1]
+    I[t] <- I[t-1] + N_S_I[t-1] - N_I_R[t-1]
+    R[t] <- N - S[t] - I[t]
+  }
+
+  # Need a value for S[1] and I[1]
+  I[1] <- I_start # Number of people infected at start
+  R[1] <- R_start # As above but for removed
+  S[1] <- N - I[1] - R[1] # Left over
+
+  # Probabilities and R_0  
+  p_S_I <- 1 - exp( - beta )
+  p_I_R <- 1 - exp( -gamma )
+  R_0 <- (beta/gamma)
+
+  # Now the prior on the hyper-parameters
+  beta ~ dgamma(1,1)
+  gamma <- 1/gamma_inv
+  gamma_inv ~ dgamma(1,1)
+
+  # Forecast into the future
+  for (t in (T+1):T_max) {
+  
+    # Transitions
+    N_I_R[t] ~ dbinom(p_I_R, I[t])
+    N_S_I[t] ~ dbinom(p_S_I, S[t])
+    
+    # Compartment values
+    S[t] <- S[t-1] - N_S_I[t-1]
+    I[t] <- I[t-1] + N_S_I[t-1] - N_I_R[t-1]
+    R[t] = N - S[t] - I[t]
+  }
+}
+'
+```
+
+### Fit to Irish data   
+
+Below is some code to download the latest John Hopkins data and meld it into a reasonable format
+
+```{r}
+suppressPackageStartupMessages(library(tidyverse))
+library(remotes)
+#install_github('joachim-gassen/tidycovid19')
+library(tidycovid19)
+
+# Download everything
+df <- download_merged_data(cached = TRUE, silent = TRUE)
+```
+
+Pick a country and create a plot of cases, deaths and recovered
+
+```{r}
+choose_country = 'Ireland'
+
+df_choose = df %>% filter(country == choose_country) %>% # Pick out the right country
+  select(date, confirmed, deaths, recovered, total_tests, population) %>% # Just take the columns needed
+  mutate(removed = deaths + recovered, # Create removed category
+         daily_confirmed = c(1,diff(confirmed)),
+         daily_removed = c(0,diff(removed))) %>% # 
+  filter(confirmed > 0) %>% # Remove all the zeros at the start 
+  mutate(day = 1:n()) # Get the day variable
+```
+
+Create a plot:
+
+```{r}
+df_choose %>% 
+  pivot_longer(names_to = 'Compartment', 
+               values_to = 'People', 
+               -c(date:removed, day)) %>% 
+  ggplot(aes(x = day, y = People, colour = Compartment)) + geom_line()
+```
+
+This is all obviously really noisy and so needs some massive smoothing, especially the removed section. In fact, possibly the best thing to do is to remove all those small values before fitting the model.
+
+Here I will try and smooth the recovered values then add back on the deaths
+```{r}
+library(pracma)
+df_choose_smoothed = df_choose %>% 
+  mutate(recovered_smooth = movavg(recovered, n = 50, type = 's'),
+         daily_recovered_smooth = c(0, diff(recovered_smooth)),
+         daily_removed_smooth = daily_recovered_smooth + deaths,
+         confirmed_smooth = movavg(confirmed, n = 5, type = 's'),
+         daily_confirmed_smooth = c(1, diff(confirmed_smooth)))
+df_choose_smoothed %>% 
+  select(day, daily_confirmed_smooth, daily_removed_smooth) %>% 
+  pivot_longer(names_to = 'Compartment', 
+               values_to = 'People', 
+               -day) %>% 
+  ggplot(aes(x = day, y = People, colour = Compartment)) + geom_line()
+
+```
+
+
+First fit using only the daily cases data:
+
+```{r}
+T = max(df_choose_smoothed$day)
+N_future = 50 # Forecast X days into the future
+T_max = T + N_future 
+
+jags_data = list(N = df_choose_smoothed$population[1],
+                 T = T,
+                 T_max = T_max, 
+                 I_start = 10,
+                 R_start = 0,
+                 N_S_I = c(round(df_choose_smoothed$daily_confirmed_smooth), rep(NA, N_future)))
+                 #N_I_R = c(round(df_choose_smoothed$daily_removed_smooth), rep(NA, N_future)))
+
+library(R2jags)
+jags_run = jags(data = jags_data,
+                parameters.to.save = c("gamma_inv", "beta",
+                                       "S","I", "R", "R_0"),
+                model.file = textConnection(jags_code))
+plot(jags_run)
+```
+
+Now plot the number in different compartments over time:
+
+```{r}
+S_post = jags_run$BUGSoutput$median$S
+I_post = jags_run$BUGSoutput$median$I
+R_post = jags_run$BUGSoutput$median$R
+
+tibble(t = 1:T_max,
+  S_post, I_post, R_post) %>%
+  pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>%
+  ggplot(aes(x = t, y = People, colour = Compartment)) +
+  geom_line()
+
+```
+
+Now plot the parameter estimates against their true values
+
+```{r}
+post = jags_run$BUGSoutput$sims.list
+tibble(iter = 1:length(post$beta),
+       beta = post$beta,
+       gamma_inv = post$gamma_inv,
+       R0 = post$R_0) %>%
+  pivot_longer(names_to = 'Type', values_to = 'Sample',-iter) %>%
+  ggplot(aes(x = Sample, fill = Type)) +
+  geom_histogram(bins = 30) +
+  facet_wrap(~ Type, scales = 'free') +
+  theme(legend.position = 'None')
+```
+Beta is tiny! and gamma_inv not that much better

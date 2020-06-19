@@ -8,7 +8,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Please see the list below for notebooks detailing the different models in this repository
+Please see the list below for notebooks detailing the different models in the [Hamilton Institute COVID-19 modelling](https://github.com/hamilton-institute/covid19-modelling) GitHub repository.
 
 1. A simple SIR model written in JAGS: [html version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR.nb.html) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR.Rmd)
 1. An SIR model with a change-point due to a lockdown: [html version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR_changepoint.Rmd) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR_changepoint.Rmd)
