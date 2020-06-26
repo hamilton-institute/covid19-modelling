@@ -1,0 +1,78 @@
+---
+title: "Simulating from JAGS"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The following is modified from https://oliviergimenez.github.io/post/sim_with_jags/
+
+The trick is to use a data block, have the simplest model block you could think of and pass the parameters as if they were data. 
+
+```{r, message=FALSE}
+library(R2jags)
+library(runjags)
+library(mcmcplots)
+library(tidyverse)
+```
+
+```{r}
+txtstring <- '
+data{
+  # Likelihood
+  for (t in 1:T) {
+    N_I_R[t] ~ dbinom(p_I_R, I[t])
+    N_S_I[t] ~ dpois(p_S_I*S[t])
+  }
+
+  # These are the known time evolution steps:
+  for(t in 2:T) {
+    S[t] <- S[t-1] - N_S_I[t-1]
+    I[t] <- I[t-1] + N_S_I[t-1] - N_I_R[t-1]
+    R[t] <- N - S[t] - I[t]
+  }
+
+  # Need a value for S[1] and I[1]
+  I[1] <- I_start # Assume the number of people infected on day 1 is the same as those transitioning from E to I
+  R[1] <- R_start # As above but for removed
+  S[1] <- N - I[1] - R[1] # Left over
+
+  # Probabilities and R_0  
+  p_S_I <- 1 - exp( - beta )
+  p_I_R <- 1 - exp( -gamma )
+  R_0 <- (beta/gamma)
+
+}
+model{
+fake <- 0
+}
+'
+
+# parameters for simulations 
+N = 1000 # Population size
+T = 200 # Maximum time steps
+
+# First the hyper-parameters
+gamma_inv = 6.6 + 7.4; gamma = 1/gamma_inv
+R_0 = 3.6
+beta = gamma*R_0
+
+# parameters are treated as data for the simulation step
+data<-list(N= N, T = T, gamma = gamma, beta = beta, I_start = 10, R_start = 0)
+
+# run jags
+out <- run.jags(txtstring, data = data,monitor=c("S","I","R"),sample=1, n.chains=1, summarise=FALSE)
+
+Simulated <- coda::as.mcmc(out)
+Simulated
+
+dat = tibble(simulation = as.vector(Simulated))
+dat$comparment <- c(rep("S",T), rep("I",T),rep("R",T))
+dat$t <- rep(1:T, 3)
+
+ggplot(dat, aes(x = t, y = simulation, colour = comparment)) +
+  geom_line()
+
+```

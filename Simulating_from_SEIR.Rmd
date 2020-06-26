@@ -1,0 +1,86 @@
+---
+title: "Simulating from JAGS"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The following is modified from https://oliviergimenez.github.io/post/sim_with_jags/
+
+The trick is to use a data block, have the simplest model block you could think of and pass the parameters as if they were data. 
+
+```{r, message=FALSE}
+library(R2jags)
+library(runjags)
+library(mcmcplots)
+library(tidyverse)
+```
+
+```{r}
+txtstring <- '
+data {
+  # Likelihood
+  for (t in 1:T) {
+    N_S_E[t] ~ dpois(beta_E * E[t] * S[t] / N)
+    N_S_I[t] ~ dpois(beta_I * I[t] * S[t] / N)
+    N_E_I[t] ~ dbinom(p_E_I, E[t])
+    N_I_R[t] ~ dbinom(p_I_R, I[t])
+  }
+
+  # These are the known time evolution steps:
+  for(t in 2:T) {
+    S[t] <- S[t-1] - N_S_E[t-1] - N_S_I[t-1]
+    E[t] <- E[t-1] + N_S_E[t-1] + N_S_I[t-1] - N_E_I[t-1]
+    I[t] <- I[t-1] + N_E_I[t-1] - N_I_R[t-1]
+    R[t] <- R[t-1] + N_I_R[t-1]
+  }
+
+  # Need a value for S[1], E[1], and I[1]
+  I[1] <- I_start
+  E[1] <- E_start
+  R[1] <- R_start
+  S[1] <- N - I[1] - R[1] # Left over
+
+  # Probabilities and R_0  
+  p_E_I <- 1 - exp( - gamma_E )
+  p_I_R <- 1 - exp( - gamma_I )
+  R_0 <- (beta_E/gamma_E) + (beta_I/gamma_I)
+}
+model{
+  fake <- 0
+}
+'
+
+# parameters for simulations 
+N = 4.9*10^6 # Population size
+T = 200 # Maximum time steps
+
+# First the hyper-parameters
+gamma_E_inv = 6.6; gamma_E = 1/gamma_E_inv # Days / Inverse days
+gamma_I_inv = 7.4; gamma_I = 1/gamma_I_inv
+beta_E_inv = 5; beta_E = 1/beta_E_inv
+beta_I_inv = 5; beta_I = 1/beta_I_inv
+R_0 = beta_E/gamma_E + beta_I/gamma_I
+
+# parameters are treated as data for the simulation step
+data<-list(N = N, T = T, gamma_E = gamma_E, gamma_I = gamma_I, 
+           beta_E = beta_E, beta_I = beta_I,
+           I_start = 10, E_start = 0, R_start = 0)
+
+# run jags
+out <- run.jags(txtstring, data = data,monitor=c("S", "E", "I", "R"),
+                sample = 1, n.chains = 1, summarise=FALSE)
+
+Simulated <- coda::as.mcmc(out)
+
+# Create a plot
+dat = tibble(simulation = as.vector(Simulated))
+dat$comparment <- c(rep("S",T), rep("E",T), rep("I",T),rep("R",T))
+dat$t <- rep(1:T, 4)
+
+ggplot(dat, aes(x = t, y = simulation, colour = comparment)) +
+  geom_line()
+
+```
