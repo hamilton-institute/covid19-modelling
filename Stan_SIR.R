@@ -150,6 +150,8 @@ N_S_I[N_S_I==0] <-1
 stan_data = list(N = N,
                  T = T,
                  T_max = T_max,
+                 N_S_I = N_S_I,
+                 N_I_R = N_I_R,
                  I_start = I[1],
                  R_start = R[1]
 )
@@ -201,6 +203,7 @@ tibble(iter = 1:length(beta_post),
                            Type = c('beta', 'gamma_inv', 'R0')),
              aes(xintercept = Sample)) +
   theme(legend.position = 'None')
+ggsave(file = 'stan_plot_not_good_20200714.pdf')
 
 # Try Shiny Stan
 # ---------------------------------------------------------------------------------

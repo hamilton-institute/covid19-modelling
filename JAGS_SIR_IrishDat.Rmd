@@ -32,7 +32,7 @@ Some parameters:
 
 Some extra parameters are derived:
 
-- Let $R_0$ (or $R_0(t)$) be the basic reproduction number, possibly changing over time, that determines the expected number of people who turn susceptible from an infected person
+- Let $R_0$ (or $R_0(t)$) be the basic reproduction number, possibly changing over time, that determines the expected number of people who turn infectious from an infected person
 - Let $\tau^*$ be the time point when the epidemic goes extinct, i.e. when there are no more infected individuals left
 
 ### Model
@@ -48,14 +48,14 @@ In English these equations mean:
   - The number of infected people at time $t+1$ is the number of infected people at time $t$ plus the number of people who move from susceptible to infected at time $t$ less the number of removed individuals who have moved from exposed to removed. 
   - The total number of people in each compartment is always equal to the population size
 
-The latent variables are given by a a possion approximation to the Binomial distribution and binomial distribution as follows:
+Each of the latent variables is given a binomial distribution
 
-$$N_{S \rightarrow I}(t) \sim Pois(S(t)*p_{S \rightarrow I}(t))$$
+$$N_{S \rightarrow I}(t) \sim Bin(S(t), p_{S \rightarrow I}(t))$$
 $$N_{I \rightarrow R}(t) \sim Bin(I(t), p_{I \rightarrow R})$$
 
 In words these equations mean:
 
-- The number of susceptible people at time $t$ get infected at a rate of $S(t)$*$p_{S \rightarrow I}(t)$. This means that the number of people moving from susceptible to infected at time $t$ is a fraction of the total number of susceptible individuals.
+- The number of susceptible people who get infected at time $t$ is a binomial distribution with maximum value $S(t)$ and time-dependent probability $p_{S \rightarrow I}(t)$. This means that the number of people moving from susceptible to infected at time $t$ has to be a fraction of the total number of susceptible individuals
 - The number of infected individuals who get removed at time $t$ is a binomial distribution with maximum value $I(t)$ and probability $p_{I \rightarrow R}$. This means that the number of people who get removed at time $t$ is a fraction of the number of people who are infected at time $t$
 
 These probabilities are set at
@@ -85,7 +85,7 @@ model {
   # Likelihood
   for (t in 1:T) {
     N_I_R[t] ~ dbinom(p_I_R, I[t])
-    N_S_I[t] ~ dpois(p_S_I*S[t])
+    N_S_I[t] ~ dbinom(p_S_I, S[t])
   }
 
   # These are the known time evolution steps:
@@ -103,12 +103,12 @@ model {
   # Probabilities and R_0  
   p_S_I <- 1 - exp( - beta )
   p_I_R <- 1 - exp( -gamma )
-  
+  R_0 <- (beta/gamma)
+
   # Now the prior on the hyper-parameters
-  R_0 ~ dunif(2, 5) # 4
-  beta <- R_0 * gamma
+  beta ~ dunif(0.1, 0.9) #= 0.6
   gamma <- 1/gamma_inv
-  gamma_inv ~ dunif(10, 20) # 14
+  gamma_inv ~ dunif(0, 30) # 10
 
   # Can now forecast into the future
   for (t in (T+1):T_max) {
@@ -126,79 +126,100 @@ model {
 '
 ```
 
-### Fit to simulated data
 
-I will first try simulating some data from this model and checking that JAGS actually works. 
+```{r, real data}
+library(lubridate)
+library(tidyverse)
+library(scales)
 
-```{r}
-# Summary values
-N = 1000 # Population size
-T = 30 # Maximum time steps
-t = 1:T
+N = 4937786 # Ireland population size
 
-# First the hyper-parameters
-R_0 = 2
-gamma_inv = 14; gamma = 1/gamma_inv
-beta = R_0 * gamma
+files <- list.files("data")
+numbers_files <- unlist(str_extract_all(files, '[0-9]{1,10}'))
 
-# Now the probabilities
-p_I_R = 1 - exp(-gamma)
-p_S_I = 1 - exp(-beta)
+read <- files[
+  str_detect(files, paste(max(as.numeric(numbers_files))))]
 
-# Give an initial values for everthing required
-N_S_I = N_I_R = S = I = R = rep(NA, T)
+df <- readxl::read_excel(paste0("data/", read))
+dim(df) # 25111 rows,    19 columns
 
-S[1] = N - 10; I[1] = 10; R[1] = 0
-N_S_I[1] = rpois(1, S[1]*p_S_I)
-N_I_R[1] = rbinom(1, I[1], p_I_R)
+names(df) <- c("age", "sex", "date", "onset_date", 
+               "county", "diagnosis_date", "lab_date", 
+               "patient_type", "hospitalised", 
+               "first_date", "discharge_date", "died", 
+               "date_death", "icu", "outside", "hw", 
+               "outbreak", "outbreak_location", 
+               "transmission")
+# ----------------------------------------
 
-# Now can loop through filling in the other values
-for (t in 2:T) {
-  
-  N_S_I[t-1] <- ifelse(N_S_I[t-1]>S[t-1],0,N_S_I[t-1]) # added this to impose the constraint that N_S_I is less than or equal to S (only needed for Poisson approximation)
-  
-  S[t] <- S[t-1] - N_S_I[t-1]
-  I[t] <- I[t-1] + N_S_I[t-1] - N_I_R[t-1]
-  R[t] = N - S[t] - I[t] 
+df <- df %>% mutate(recovered_date = date + days(21)) # crude assumption that recovery date is case date + 3 weeks
+df$recovered_date[which(df$died == "Yes")] <- NA # if person died then recovery date is NA
 
-  # Now get the actual values
-  N_I_R[t] = rbinom(1, I[t], p_I_R)
-  # These are usually imputed:
-  N_S_I[t] = rpois(1, S[t]*p_S_I)
+## Get cases data
+cases <- df %>% 
+          group_by(date) %>% 
+          summarise(n = n()) %>% 
+          ungroup() %>% 
+          mutate(cumsum = cumsum(n))
 
-}
+## Get recovered data
+recovered <- df %>% 
+              group_by(recovered_date) %>% 
+              summarise(n = n()) %>% 
+              ungroup() %>% 
+              mutate(cumsum = cumsum(n)) %>% 
+              filter(recovered_date <= max(cases$date))
+# add some  dates to the beginning with 0 recoveries to match all dates in cases data
+recovered_add <- tibble(recovered_date = cases$date[1:21], n = rep(0,21), cumsum = rep(0,21))
+recovered <- full_join(recovered_add, recovered)
+
+## Get deaths data
+deaths <- df %>% 
+            group_by(date) %>% 
+            summarise(n = sum(died == "Yes")) %>% 
+            ungroup() %>% 
+            mutate(cumsum = cumsum(n)) 
+
+S <- I <- R <- rep(NA, T)
+
+N_S_I <- cases$n
+N_I_R <- deaths$n + recovered$n
+T <- nrow(cases)
+
+  # Need a value for S[1] and I[1]
+  I[1] <- 1 
+  R[1] <- 0 
+  S[1] <- N - I[1] - R[1] # Left over
+
+  # These are the known time evolution steps:
+  for(t in 2:T) {
+    S[t] <- S[t-1] - N_S_I[t-1]
+    I[t] <- I[t-1] + N_S_I[t-1] - N_I_R[t-1]
+    R[t] <- N - S[t] - I[t]
+  }
 
 # Create a plot of the epidemic
 library(ggplot2)
 library(tidyr)
 tibble(t = 1:T,
-       S, I, R) %>%
+       I, R) %>%
   pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>%
   ggplot(aes(x = t, y = People, colour = Compartment)) +
-  #scale_y_log10() +
   geom_line()
-
-tibble(t = 1:T,
-       N_S_I, N_I_R) %>%
-  pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>%
-  ggplot(aes(x = t, y = People, colour = Compartment)) +
-  #scale_y_log10() +
-  geom_line()
-
 ```
 
 Now we can fit this model by providing the data to JAGS
 
 ```{r, message= FALSE,  results='hide', warning=FALSE}
-N_future = 50 # Forecast 100 days into the future
-T_max = T + N_future 
+T_future = 50 # Forecast 100 days into the future
+T_max = T + T_future 
 jags_data = list(N = N,
                  T = T,
                  T_max = T_max, 
-                 I_start = I[1],
-                 R_start = R[1],
-                 N_S_I = c(N_S_I, rep(NA, N_future)), # You can comment out this line if you want it to not have the number of cases. 
-                 N_I_R = c(N_I_R, rep(NA, N_future))) 
+                 I_start = 1,
+                 R_start = 0,
+                 N_S_I = c(N_S_I, rep(NA, T_future)), # You can comment out this line if you want it to not have the number of cases. 
+                 N_I_R = c(N_I_R, rep(NA, T_future))) 
 
 library(R2jags)
 jags_run = jags(data = jags_data,
@@ -211,24 +232,19 @@ plot(jags_run)
 Now plot the number of infected over time:
 
 ```{r}
-# S_post = jags_run$BUGSoutput$mean$S
-# I_post = jags_run$BUGSoutput$mean$I
-# R_post = jags_run$BUGSoutput$mean$R
-
-
 S_post = jags_run$BUGSoutput$median$S
 I_post = jags_run$BUGSoutput$median$I
 R_post = jags_run$BUGSoutput$median$R
 
 tibble(t = 1:T_max,
-  S_post, I_post, R_post) %>%
+I_post, R_post) %>%
   pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>%
   ggplot(aes(x = t, y = People, colour = Compartment)) +
   geom_line()
 
 ```
 
-Now plot the parameter estimates against their true values
+Now plot the parameter estimates 
 
 ```{r}
 post = jags_run$BUGSoutput$sims.list
@@ -240,11 +256,6 @@ tibble(iter = 1:length(post$beta),
   ggplot(aes(x = Sample, fill = Type)) +
   geom_histogram(bins = 30) +
   facet_wrap(~ Type, scales = 'free') +
-  geom_vline(data = tibble(iter = rep(1, 3),
-                           Sample = c(beta, gamma_inv, R_0),
-                           Type = c('beta', 'gamma_inv', 'R0')),
-             aes(xintercept = Sample)) +
   theme(legend.position = 'None')
 ```
-
-All values seem to match, depending on whether you give it the number of cases ($N_{S \rightarrow I}$) or not. 
+ 

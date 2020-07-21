@@ -1,0 +1,149 @@
+```{r, echo = FALSE, include= FALSE}
+rm(list = ls())
+set.seed(102)
+```
+
+
+### Introduction
+
+In this notebook we fit a Bayesian SIR model in JAGS to a chosen country using the latest Johns Hopkins data. The details of the models, including all the notation, are to be found in other documents in this GitHub repository so are not re-stated here. The model results should be taken with a fistful of salt as the problems with these data sets are [well known](https://lmgtfy.com/?q=problems+with+Covid19+data). 
+
+### JAGS model
+
+Below is some code for a JAGS SIR model:
+
+```{r}
+jags_code = '
+model {
+  # Likelihood
+  for (t in 1:T) {
+    N_I_R[t] ~ dbinom(p_I_R, I[t])
+    N_S_I[t] ~ dbinom(p_S_I, S[t])
+  }
+
+  # These are the known time evolution steps:
+  for(t in 2:T) {
+    S[t] <- S[t-1] - N_S_I[t-1]
+    I[t] <- I[t-1] + N_S_I[t-1] - N_I_R[t-1]
+    R[t] <- N - S[t] - I[t]
+  }
+
+  # Need a value for S[1] and I[1]
+  I[1] <- I_start # Assume the number of people infected on day 1 is the same as those transitioning from E to I
+  R[1] <- R_start # As above but for removed
+  S[1] <- N - I[1] - R[1] # Left over
+
+  # Probabilities and R_0  
+  p_S_I <- 1 - exp( - beta )
+  p_I_R <- 1 - exp( -gamma )
+  
+  # Now the prior on the hyper-parameters
+  R_0 ~ dunif(1, 6) #<- 4 #(beta/gamma)
+  gamma_inv <- 14 #~ dunif(0, 30) # 10
+  gamma <- 1/gamma_inv
+  beta <- R_0 * gamma #~ dunif(0.1, 0.9) #= 0.6
+  
+  # Can now forecast into the future
+  for (t in (T+1):T_max) {
+  
+    # Transitions
+    N_I_R[t] ~ dbinom(p_I_R, I[t])
+    N_S_I[t] ~ dbinom(p_S_I, S[t])
+    
+    # Compartment values
+    S[t] <- S[t-1] - N_S_I[t-1]
+    I[t] <- I[t-1] + N_S_I[t-1] - N_I_R[t-1]
+    R[t] = N - S[t] - I[t]
+  }
+}
+'
+```
+
+I will use the `tidycovid19` package to load everything in
+
+```{r, real data}
+library(tidyverse)
+library(tidycovid19)
+df <- download_merged_data(silent = TRUE, cached = TRUE)
+str(df[,1:9]) # Lots more columns but not all of interest right now
+```
+
+Now pick out a country and set up the data
+
+```{r}
+country_choose = 'Ireland'
+df_use = df %>% filter(country == country_choose, confirmed > 0)
+N = df_use$population[1]
+cases = df_use$confirmed
+recovered = df_use$recovered
+deaths = df_use$deaths
+removed = recovered + deaths
+```
+
+Get it into the right format
+```{r}
+T = nrow(df_use)
+N_S_I = c(0, diff(cases))
+N_I_R = c(0,diff(removed))
+
+# Create a plot of the epidemic
+tibble(t = 1:T,
+       N_S_I, N_I_R) %>%
+  pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>%
+  ggplot(aes(x = t, y = People, colour = Compartment)) +
+  geom_line()
+
+```
+
+
+Now we can fit this model by providing the data to JAGS
+
+```{r, message= FALSE,  results='hide', warning=FALSE}
+T_future = 1 # Forecast into the future
+T_max = T + T_future 
+jags_data = list(N = N,
+                 T = T,
+                 T_max = T_max, 
+                 I_start = 1,
+                 R_start = 0,
+                 N_S_I = c(N_S_I, rep(NA, T_future)))
+                 #N_I_R = c(N_I_R, rep(NA, T_future))) 
+
+library(R2jags)
+jags_run = jags(data = jags_data,
+                parameters.to.save = c("gamma_inv", "beta", "N_I_R",
+                                       "S","I", "R", "R_0"),
+                model.file = textConnection(jags_code))
+plot(jags_run)
+```
+
+Now plot the number of infected over time:
+
+```{r}
+S_post = jags_run$BUGSoutput$median$S
+I_post = jags_run$BUGSoutput$median$I
+R_post = jags_run$BUGSoutput$median$R
+
+tibble(t = 1:T_max, 
+I_post, R_post) %>%
+  pivot_longer(names_to = 'Compartment', values_to = 'People', -t) %>%
+  ggplot(aes(x = t, y = People, colour = Compartment)) +
+  geom_line()
+
+```
+
+Now plot the parameter estimates 
+
+```{r}
+post = jags_run$BUGSoutput$sims.list
+tibble(iter = 1:length(post$beta),
+       beta = post$beta,
+       gamma_inv = post$gamma_inv,
+       R0 = post$R_0) %>%
+  pivot_longer(names_to = 'Type', values_to = 'Sample',-iter) %>%
+  ggplot(aes(x = Sample, fill = Type)) +
+  geom_histogram(bins = 30) +
+  facet_wrap(~ Type, scales = 'free') +
+  theme(legend.position = 'None')
+```
+ 
