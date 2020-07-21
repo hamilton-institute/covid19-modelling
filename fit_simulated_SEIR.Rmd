@@ -287,7 +287,7 @@ jags_run_data = list(N = N, T = T,
                      gamma_beta_I_2 = fac,
                      N_E_I = dat3$N_E_I,
                      N_I_R = dat3$N_I_R,
-                     # These are the starting values for each component
+                     # These are the starting values for each component - HERE THEY ARE DELIBERATELY SPECIFIED WRONG!
                      I_start = I_start*10, E_start = E_start+10, R_start = R_start  + 100)
 
 # Set the starting values to be decent
@@ -315,8 +315,8 @@ plot(run2)
 Now see if the values of `N_S_E` and `N_S_I` match the true
 
 ```{r}
-post_N_S_E = run1$BUGSoutput$median$N_S_E
-post_N_S_I = run1$BUGSoutput$median$N_S_I
+post_N_S_E = run2$BUGSoutput$median$N_S_E
+post_N_S_I = run2$BUGSoutput$median$N_S_I
 
 p1 = qplot(dat3$N_S_E, post_N_S_E)
 p2 = qplot(dat3$N_S_I, post_N_S_I)
@@ -326,10 +326,10 @@ grid.arrange(p1, p2, ncol=2)
 and see if the parameter values match the truth
 
 ```{r}
-post_beta_E = run1$BUGSoutput$sims.list$beta_E
-post_beta_I = run1$BUGSoutput$sims.list$beta_I
-post_gamma_E = run1$BUGSoutput$sims.list$gamma_E
-post_gamma_I = run1$BUGSoutput$sims.list$gamma_I
+post_beta_E = run2$BUGSoutput$sims.list$beta_E
+post_beta_I = run2$BUGSoutput$sims.list$beta_I
+post_gamma_E = run2$BUGSoutput$sims.list$gamma_E
+post_gamma_I = run2$BUGSoutput$sims.list$gamma_I
 p3 = qplot(post_beta_E, geom = 'histogram') + 
   geom_vline(xintercept = beta_E) + 
   geom_histogram(aes(x = rgamma(10000, beta_E*fac,fac), fill = 'red', alpha = 0.3)) + 
@@ -350,6 +350,9 @@ p6 = qplot(post_gamma_I, geom = 'histogram') +
 grid.arrange(p3, p4, p5, p6, ncol=2)
 ```
 
+## Scenario 3
+
+Finally going to give it only `N_E_I` with strong prior distribution on the other parameters to see if it can estimate everything else
 
 
 
