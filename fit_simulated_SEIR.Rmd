@@ -9,7 +9,10 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE,
+                      fig.align = 'center')
 ```
 
 # Part 1: Simulating from an SEIR model 
@@ -173,11 +176,13 @@ Finally, before starting this exercise, I'm going to simulate the transition dat
 
 ```{r}
 # Simulate what would actually be the data
-set.seed(123)
-out2 = run.jags(seir_sim, 
-                data = data, 
-                monitor = c("N_E_I", "N_I_R", "N_S_E", "N_S_I"),
-                sample = 1, n.chains = 1, summarise=FALSE)
+# set.seed(123)
+# out2 = run.jags(seir_sim,
+#                 data = data,
+#                 monitor = c("N_E_I", "N_I_R", "N_S_E", "N_S_I"),
+#                 sample = 1, n.chains = 1, summarise=FALSE)
+# saveRDS(out2, file = 'simulated_inputs.rds')
+out2 = readRDS(file = 'simulated_inputs.rds')
 Simulated2 = coda::as.mcmc(out2)
 dat2 = tibble(simulation = as.vector(Simulated2))
 dat2$compartment = c(rep("N_E_I",T), rep("N_I_R",T), rep("N_S_E",T),rep("N_S_I",T))
@@ -298,21 +303,21 @@ inits = function() {
 }
 
 # Run jags
-run2 = jags(data = jags_run_data,
-            inits = inits,
-            parameters.to.save = c("N_S_E", "N_S_I", "beta_E", "beta_I", "gamma_E", "gamma_I"),
-            model.file = textConnection(seir_model))
-saveRDS(run2, file = 'jags_run_sier_s2.rds')
+# run2 = jags(data = jags_run_data,
+#             inits = inits,
+#             parameters.to.save = c("N_S_E", "N_S_I", "beta_E", "beta_I", "gamma_E", "gamma_I"),
+#             model.file = textConnection(seir_model))
+# saveRDS(run2, file = 'jags_run_sier_s2.rds')
 run2 = readRDS(file = 'jags_run_sier_s2.rds')
 ```
 
-That ran very very slowly. See if it converged
+About 40 minutes to run
 
 ```{r}
 plot(run2)
 ```
 
-Now see if the values of `N_S_E` and `N_S_I` match the true
+. It did ok but not great convergence of the beta and gamma values. Now see if the values of `N_S_E` and `N_S_I` match the true
 
 ```{r}
 post_N_S_E = run2$BUGSoutput$median$N_S_E
@@ -354,7 +359,80 @@ grid.arrange(p3, p4, p5, p6, ncol=2)
 
 Finally going to give it only `N_E_I` with strong prior distribution on the other parameters to see if it can estimate everything else
 
+```{r}
+fac = 10 # Factor to multiple up the gamma distributions. Larger values give lower sd
+jags_run_data = list(N = N, T = T, 
+                     gamma_E_1 = gamma_E*fac, # These enable me to fix the mean and have small sd
+                     gamma_E_2 = fac,
+                     gamma_I_1 = gamma_I*fac, # These enable me to fix the mean and have small sd
+                     gamma_I_2 = fac,
+                     gamma_beta_E_1 = beta_E*fac, # These enable me to fix the mean and have small sd
+                     gamma_beta_E_2 = fac,
+                     gamma_beta_I_1 = beta_I*fac, # These enable me to fix the mean and have small sd
+                     gamma_beta_I_2 = fac,
+                     N_E_I = dat3$N_E_I,
+                     # These are the starting values for each component - HERE THEY ARE DELIBERATELY SPECIFIED WRONG!
+                     I_start = I_start, E_start = E_start, R_start = R_start)
 
+# Set the starting values to be decent
+inits = function() {
+  with(dat3, 
+       list(N_S_E = N_S_E,
+            N_I_R = N_I_R,
+            N_S_I = N_S_I))
+}
 
+# Run jags
+# run3 = jags(data = jags_run_data,
+#             inits = inits,
+#             parameters.to.save = c("N_S_E", "N_S_I", "N_I_R", "beta_E", "beta_I", "gamma_E", "gamma_I"),
+#             model.file = textConnection(seir_model))
+# saveRDS(run3, file = 'jags_run_sier_s3.rds')
+run3 = readRDS(file = 'jags_run_sier_s3.rds')
+```
 
+About 40 minutes to run
 
+```{r}
+plot(run3)
+```
+
+. It did ok but not great convergence of the beta and gamma values. Now see if the values of `N_S_E` and `N_S_I` match the true
+
+```{r}
+post_N_S_E = run3$BUGSoutput$median$N_S_E
+post_N_S_I = run3$BUGSoutput$median$N_S_I
+post_N_I_R = run3$BUGSoutput$median$N_I_R
+
+p1 = qplot(dat3$N_S_E, post_N_S_E)
+p2 = qplot(dat3$N_S_I, post_N_S_I)
+p3 = qplot(dat3$N_I_R, post_N_I_R)
+grid.arrange(p1, p2, p3, ncol=3)
+```
+
+and see if the parameter values match the truth
+
+```{r}
+post_beta_E = run2$BUGSoutput$sims.list$beta_E
+post_beta_I = run2$BUGSoutput$sims.list$beta_I
+post_gamma_E = run2$BUGSoutput$sims.list$gamma_E
+post_gamma_I = run2$BUGSoutput$sims.list$gamma_I
+p3 = qplot(post_beta_E, geom = 'histogram') + 
+  geom_vline(xintercept = beta_E) + 
+  geom_histogram(aes(x = rgamma(10000, beta_E*fac,fac), fill = 'red', alpha = 0.3)) + 
+  theme(legend.position = 'None')
+p4 = qplot(post_beta_I, geom = 'histogram') + 
+  geom_vline(xintercept = beta_I) + 
+  geom_histogram(aes(x = rgamma(10000, beta_I*fac,fac), fill = 'red', alpha = 0.3)) + 
+  theme(legend.position = 'None')
+p5 = qplot(post_gamma_E, geom = 'histogram') + 
+  geom_vline(xintercept = gamma_E) + 
+  geom_histogram(aes(x = rgamma(10000, gamma_E*fac,fac), fill = 'red', alpha = 0.3)) + 
+  theme(legend.position = 'None')
+p6 = qplot(post_gamma_I, geom = 'histogram') + 
+  geom_vline(xintercept = gamma_I) + 
+  geom_histogram(aes(x = rgamma(10000, gamma_I*fac,fac), fill = 'red', alpha = 0.3)) + 
+  theme(legend.position = 'None')
+
+grid.arrange(p3, p4, p5, p6, ncol=2)
+```

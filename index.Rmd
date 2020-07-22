@@ -13,6 +13,7 @@ Please see the list below for notebooks detailing the different models in the [H
 1. A simple SIR model written in JAGS: [html version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR.nb.html) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR.Rmd)
 1. An SIR model with a change-point due to a lockdown: [html version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR_changepoint.html) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR_changepoint.Rmd)
 1. Simulating from an SEIR model in JAGS: [html version](https://hamilton-institute.github.io/covid19-modelling/Simulating_from_SEIR.html) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/Simulating_from_SEIR.Rmd)
+1. Fitting data of different types to simulated SEIR models: [html version](https://hamilton-institute.github.io/covid19-modelling/fit_simulated_SEIR.html) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/fit_simulated_SEIR.Rmd)
 
 
 
