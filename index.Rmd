@@ -14,6 +14,7 @@ Please see the list below for notebooks detailing the different models in the [H
 1. An SIR model with a change-point due to a lockdown: [html version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR_changepoint.html) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/JAGS_SIR_changepoint.Rmd)
 1. Simulating from an SEIR model in JAGS: [html version](https://hamilton-institute.github.io/covid19-modelling/Simulating_from_SEIR.html) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/Simulating_from_SEIR.Rmd)
 1. Fitting data of different types to simulated SEIR models: [html version](https://hamilton-institute.github.io/covid19-modelling/fit_simulated_SEIR.html) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/fit_simulated_SEIR.Rmd)
+1. Fitting simulated data to a change-point SEIR model: [html version](https://hamilton-institute.github.io/covid19-modelling/fit_changepoint_simulated_SEIR.html) | [Rmd version](https://hamilton-institute.github.io/covid19-modelling/fit_changepoint_simulated_SEIR.Rmd)
 
 
 

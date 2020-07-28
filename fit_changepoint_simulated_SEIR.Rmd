@@ -228,7 +228,9 @@ inits = function() {
 # run jags
 # run_cp1 = jags(data = jags_run_data,
 #                inits = inits,
-#                parameters.to.save = c("N_S_E", "N_S_I", "N_I_R", "beta", "alpha", "gamma_E", "gamma_I"),
+#                parameters.to.save = c("N_S_E", "N_S_I", 
+#                                       "N_I_R", "beta", "alpha",
+#                                       "gamma_E", "gamma_I"),
 #                model.file = textConnection(seir_cp_model))
 # saveRDS(run_cp1, file = 'jags_run_sier_cp1.rds')
 run_cp1 = readRDS(file = 'jags_run_sier_cp1.rds')
@@ -280,8 +282,6 @@ grid.arrange(p4, p5, p6, p7, ncol=2)
 ```
 
 Looks pretty good!
-
-## Part 2
 
 
 
